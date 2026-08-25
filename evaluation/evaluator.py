@@ -8,7 +8,7 @@ from networkx.utils import UnionFind
 from tqdm import tqdm
 import random
 
-class Evaluator: 
+class Evaluator:
 
     @staticmethod
     def evaluate(G, G_minus_T, G_built, G_greedy = None, planar = True, skip_greedy = False):
@@ -21,20 +21,21 @@ class Evaluator:
 
         if isinstance(G, nx.DiGraph):
             metrics.update(Evaluator.directed_metrics(G, G_minus_T, skip_greedy = skip_greedy))
-            
+
         elif isinstance(G, nx.Graph):
             metrics.update(Evaluator.undirected_metrics(G, G_minus_T, G_greedy, skip_greedy = skip_greedy))
-            
+
         if planar:
             planar_total, planar_edges = Evaluator.build_planar(G)
             metrics["total bits planar"] = planar_total
             metrics["planar edges"] = planar_edges
         return metrics
 
-    @staticmethod 
+    @staticmethod
     def undirected_metrics(G: nx.Graph, G_minus_T: nx.Graph, G_greedy: nx.DiGraph, skip_greedy = False):
         # entropy calculation 
         m = G.number_of_edges()
+        indegree_entropy = 0
         G_entropy_bitvector_greedy = 0
         G_entropy_bitvector_lexicographical = 0
         G_entropy_bitvector_random = 0
@@ -51,6 +52,7 @@ class Evaluator:
         for v in G_greedy.nodes():
             indegree = G_greedy.in_degree(v)
             if indegree > 0:
+                indegree_entropy += indegree * math.log2(m/indegree)
                 G_entropy_bitvector_greedy += indegree * math.log2(m/indegree)
         G_entropy_bitvector_greedy += math.log2(math.comb(m + n, n))
 
@@ -59,40 +61,40 @@ class Evaluator:
             if degree > 0:
                 G_entropy_bitvector += degree * math.log2((2*m)/degree)
         G_entropy_bitvector += math.log2(math.comb((2*m) + n, n))
-        
+
         G_lexicographical = G.to_directed()
         for u, v in G.edges():
-            if u < v: 
+            if u < v:
                 G_lexicographical.remove_edge(u,v)
-            else: 
+            else:
                 G_lexicographical.remove_edge(v,u)
-        
+
         for v in G_lexicographical.nodes():
             indegree = G_lexicographical.in_degree(v)
             if indegree > 0:
                 G_entropy_bitvector_lexicographical += indegree * math.log2(m/indegree)
-        G_entropy_bitvector_lexicographical += math.log2(math.comb(m + n, n))        
-        
+        G_entropy_bitvector_lexicographical += math.log2(math.comb(m + n, n))
+
         #truly independent random choice for only storing a single edge
         G_random = G.to_directed()
         random.seed(170826)
         for u, v in G.edges():
             if random.random() > 0.5:
                 G_random.remove_edge (v, u)
-            else: 
+            else:
                 G_random.remove_edge(u, v)
 
         for v in G_random.nodes():
             indegree = G_random.in_degree(v)
             if indegree > 0:
                 G_entropy_bitvector_random += indegree * math.log2(m/indegree)
-        G_entropy_bitvector_random += math.log2(math.comb(m + n, n))   
+        G_entropy_bitvector_random += math.log2(math.comb(m + n, n))
 
 
         G_worst_case = G.to_directed()
         for u,v in G_greedy.edges():
             G_worst_case.remove_edge(u,v)
-        
+
         for v in G_worst_case.nodes():
             indegree = G_worst_case.in_degree(v)
             if indegree > 0:
@@ -118,7 +120,7 @@ class Evaluator:
         if G.number_of_edges() < 1000000:
             iterations = 13
         #temporary
-        if skip_greedy == True: 
+        if skip_greedy == True:
             G_prime_density = -1
         else:
             G_prime_density = density_greedy(G, iterations)[0]
@@ -128,18 +130,18 @@ class Evaluator:
         print("Greedy took: " + str(time.time() - start))
 
         H_indegree = 0
-        if m > 0: 
+        if m > 0:
             # we take the greedy approach to compare with the bound
             H_indegree = (entropy_tuple[3] - math.log2(math.comb(m+n, n)))/m
 
-        H_indegree_total = H_indegree * m 
+        H_indegree_total = H_indegree * m
         upper_bound_16 = H_indegree_total - ((n)/(2 * alpha_16)) * H_indegree + (2* n)/math.log(2)
 
         non_zero_indegrees = 0
         for v in G_greedy.nodes():
             if G_greedy.in_degree(v) > 0:
                 non_zero_indegrees += 1
-        
+
         alpha_NIB = n/non_zero_indegrees
         upper_bound_NIB = H_indegree_total - ((n)/(2 * alpha_NIB)) * H_indegree + (2* n)/math.log(2)
 
@@ -152,7 +154,7 @@ class Evaluator:
         maximum_class_degree = 0
         for v in G.nodes():
             neighbors = tuple(sorted(G.neighbors(v)))
-            if neighbors not in twin_classes: 
+            if neighbors not in twin_classes:
                 twin_classes[neighbors] = []
                 twin_classes[neighbors].append(v)
             else:
@@ -161,12 +163,14 @@ class Evaluator:
 
         return{
             "array total bits": G_array_entropy,
+            "indegree entropy": -1,
+            "indegree entropy greedy": indegree_entropy,
             "bitvector total bits": G_entropy_bitvector,
-            "bitvector lexicographical total bits": G_entropy_bitvector_lexicographical, 
+            "bitvector lexicographical total bits": G_entropy_bitvector_lexicographical,
             "bitvector worst case total bits": G_entropy_bitvector_worst_case,
             "bitvector greedy total bits": G_entropy_bitvector_greedy,
-            "bitvector random total bits": G_entropy_bitvector_random, 
-            "total bits trex": trex_total, 
+            "bitvector random total bits": G_entropy_bitvector_random,
+            "total bits trex": trex_total,
             "trex entropy": trex_entropy,
             "alpha 1.6": alpha_16,
             "DUB": upper_bound_16,
@@ -183,6 +187,7 @@ class Evaluator:
 
         # entropy calculation
         m = G.number_of_edges()
+        indegree_entropy = 0
         G_entropy_bitvector = 0
         n  = len(G.nodes())
         if m == 0:
@@ -190,12 +195,13 @@ class Evaluator:
         else:
             G_array_entropy = m * math.ceil(math.log2(n)) + n * math.ceil(math.log2(m))
 
-        
+
 
         for v in tqdm(G.nodes(), total = len(G.nodes())):
             indegree = G.in_degree(v)
             # already includes the case of m == 0
             if indegree > 0:
+                indegree_entropy += indegree * math.log2(m/indegree)
                 G_entropy_bitvector += indegree * math.log2(m/indegree)
         G_entropy_bitvector += math.log2(math.comb(m + n, n))
 
@@ -222,7 +228,7 @@ class Evaluator:
         # need to manually add the edges, otherwise only one direction is added. 
         G_multigraph.add_edges_from(G.edges)
         G_multigraph.add_nodes_from(G.nodes)
-        
+
         # choosing 13 Iterations, because in Boob et al's Paper it took 12.69 iterations to reach the optimum on avg. 
         print("beginning of Greedy alpha determination: ")
         start = time.time()
@@ -245,21 +251,21 @@ class Evaluator:
         H_indegree = 0
         if m > 0:
             H_indegree = (entropy_tuple[1] - math.log2(math.comb(m+n,n)))/m
-        
 
-        H_indegree_total = H_indegree * m 
+
+        H_indegree_total = H_indegree * m
         upper_bound_16 = H_indegree_total - ((n)/(2 * alpha_16)) * H_indegree + (2* n)/math.log(2)
 
         non_zero_indegrees = 0
         for v in G.nodes():
             if G.in_degree(v) > 0:
                 non_zero_indegrees += 1
-        
+
         alpha_NIB = n /non_zero_indegrees
         upper_bound_NIB = H_indegree_total - ((n)/(2 * alpha_NIB)) * H_indegree + (2* n)/math.log(2)
 
         indegrees = []
-        for v in G.nodes(): 
+        for v in G.nodes():
             indegrees.append(G.in_degree(v))
         indegree_CV = np.std(indegrees)/np.mean(indegrees)
 
@@ -276,20 +282,22 @@ class Evaluator:
             else:
                 maximum_class_degree = max(maximum_class_degree, len(in_neighbors) + len(out_neighbors))
                 twin_classes[neighbors].append(v)
-            
+
 
         num_classes = len(twin_classes)
-        
+
 
 
         return{
             "array total bits": G_array_entropy,
+            "indegree entropy": indegree_entropy,
+            "indegree entropy greedy": -1,
             "bitvector total bits": G_entropy_bitvector,
-            "bitvector lexicographical total bits": -1, 
+            "bitvector lexicographical total bits": -1,
             "bitvector random total bits": -1,
             "bitvector greedy total bits": -1,
             "bitvector worst case total bits": -1,
-            "total bits trex": trex_total, 
+            "total bits trex": trex_total,
             "trex entropy": trex_entropy,
             "alpha 1.6": alpha_16,
             "DUB": upper_bound_16,
@@ -302,7 +310,7 @@ class Evaluator:
 
     @staticmethod
     def build_planar(G):
-        if isinstance(G, nx.DiGraph):   
+        if isinstance(G, nx.DiGraph):
             G_undirected = G.to_undirected()
 
             for u, v in G.edges():
@@ -310,9 +318,9 @@ class Evaluator:
                 if G.has_edge(v, u):
                     weight = min(G.in_degree(u), weight)
                 G_undirected[u][v]['weight'] = weight
-            
+
             planar_edges, G_prime = Evaluator.extract_planar_edges(G_undirected, G.copy(), G)
-            
+
             planar_total = 0
             m_dash = G_prime.number_of_edges()
             for v in G_prime.nodes():
@@ -321,7 +329,7 @@ class Evaluator:
                     planar_total += indegree * math.log2(m_dash/indegree)
             planar_total += 2.092 * G.number_of_nodes() + len(planar_edges) + math.log2(math.comb(m_dash + G_prime.number_of_nodes(), G_prime.number_of_nodes()))
 
-        
+
             return planar_total, len(planar_edges)
 
         elif isinstance(G, nx.Graph):
@@ -337,7 +345,7 @@ class Evaluator:
                     G_prime.add_edge(v,u)
             planar_edges, G_prime = Evaluator.extract_planar_edges(G_undirected, G_prime)
 
-    
+
 
             planar_total = 0
             m_dash = G_prime.number_of_edges()
@@ -345,7 +353,7 @@ class Evaluator:
                 indegree = G_prime.in_degree(v)
                 if indegree > 0:
                     planar_total += indegree * math.log2(m_dash/indegree)
-    
+
             planar_total += 2.092 * G.number_of_nodes() + math.log2(math.comb(m_dash + G_prime.number_of_nodes(), G_prime.number_of_nodes()))
 
             return planar_total, len(planar_edges)
@@ -362,11 +370,11 @@ class Evaluator:
                 both_neighbors = u_neighbors.intersection(G_undirected.neighbors(v))
                 for w in both_neighbors:
                     # making sure that there are no duplicates
-                    if v<w<u: 
+                    if v<w<u:
                         # a weight can never be zero, therefore no safety check necessary 
                         triangle_weight = math.log2(G_undirected[u][v]["weight"]) + math.log2(G_undirected[v][w]["weight"]) + math.log2(G_undirected[w][u]["weight"])
                         triangles.append((triangle_weight, u, v, w))
-                
+
         for (triangle_weight, u, v, w) in sorted(triangles):
             if union_find[u] != union_find[v] and union_find[v] != union_find[w] and union_find[u] != union_find[w]:
 
@@ -383,7 +391,7 @@ class Evaluator:
                         else:
                             planar_edges.add((v,u))
                             G_prime.remove_edge(v,u)
-                    
+
                     if G_prime.has_edge(v,w) and not G_prime.has_edge(w,v):
                         planar_edges.add((v,w))
                         G_prime.remove_edge(v,w)
@@ -404,7 +412,7 @@ class Evaluator:
                     elif G_prime.has_edge(u,w) and not G_prime.has_edge(w,u):
                         planar_edges.add((u,w))
                         G_prime.remove_edge(u,w)
-                    else: 
+                    else:
                         if G_original.in_degree(w) > G_original.in_degree(u):
                             planar_edges.add((w,u))
                             G_prime.remove_edge(w,u)
@@ -419,7 +427,7 @@ class Evaluator:
 
         def weight_key(edge):
             return G_undirected[edge[0]][edge[1]]["weight"]
-            
+
         for u, v in sorted(G_undirected.edges(), key = weight_key):
             # check if edge has already been removed
             if not G_prime.has_edge(u,v) and not G_prime.has_edge(v,u):

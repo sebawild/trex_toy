@@ -14,8 +14,9 @@ for graph in $(cat Datasets/all-graphs); do
     if [[ $graph == *"Undirected"* ]]; then
         OPTIONS+=(--undirected)
     fi
-    OPTIONS+=(--metrics "n,m,type,array total bits,bitvector total bits,total bits trex,trex entropy,bitvector total bits,total bits planar,planar edges")
+    OPTIONS+=(--metrics "n,m,type,indegree entropy,indegree entropy greedy,array total bits,bitvector total bits,bitvector greedy total bits,total bits trex,trex entropy,total bits planar,planar edges")
     # replace directory / with - in the output filename
     OPTIONS+=(--output "results-$(echo "$graph" | tr '/' '-').csv")
+    echo "Running with options:" "${OPTIONS[@]}"
     python -m evaluation.pipeline --single-graph "Datasets/$graph" "${OPTIONS[@]}"
 done

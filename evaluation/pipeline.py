@@ -14,6 +14,8 @@ BASE_METRICS = ["type", "n", "m", "avg cc"]
 
 GRAPH_METRICS = [
     "array total bits",
+    "indegree entropy",
+    "indegree entropy greedy",
     "bitvector total bits",
     "bitvector lexicographical total bits",
     "bitvector worst case total bits",
