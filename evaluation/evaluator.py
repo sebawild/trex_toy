@@ -129,7 +129,7 @@ class Evaluator:
 
         H_indegree = 0
         if m > 0: 
-            # we take the the greedy approach to compare with the bound 
+            # we take the greedy approach to compare with the bound
             H_indegree = (entropy_tuple[3] - math.log2(math.comb(m+n, n)))/m
 
         H_indegree_total = H_indegree * m 

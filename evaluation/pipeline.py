@@ -52,7 +52,7 @@ DERIVED_METRICS = [
 ALL_METRICS = BASE_METRICS + GRAPH_METRICS + PLANAR_METRICS + TIMING_METRICS + DERIVED_METRICS
 
 # Metrics that require the (possibly expensive) greedy density computation.
-GREEDY_DEPENDENT_METRICS = {
+SUBGRAPH_DENSITY_DEPENDENT_METRICS = {
     "alpha 1.6", "DUB", "NIB",
     "DUB vs trex", "normalized DUB difference",
     "NIB vs trex", "normalized NIB difference",
@@ -84,7 +84,7 @@ def resolve_metrics(metrics):
 
 
 def evaluate_file(path: str, filename: str, builder: Builder, undirected: bool,
-                   extraction_strategy: str, planar: bool, skip_greedy: bool):
+                  extraction_strategy: str, planar: bool, skip_subgraph_density: bool):
     """Build and evaluate trex on a single edgelist file, returning its metrics dict."""
     print("\n Evaluating " + filename)
 
@@ -95,7 +95,7 @@ def evaluate_file(path: str, filename: str, builder: Builder, undirected: bool,
         trex_time = time.time() - start
 
         start = time.time()
-        metrics = Evaluator.evaluate(G, G_minus_T, G_built, G_greedy, planar=planar, skip_greedy=skip_greedy)
+        metrics = Evaluator.evaluate(G, G_minus_T, G_built, G_greedy, planar=planar, skip_greedy=skip_subgraph_density)
         evaluation_time = time.time() - start
         metrics["Dataset"] = filename
         if "bitvector greedy total bits" in metrics and metrics["bitvector greedy total bits"] not in (0, -1):
@@ -109,7 +109,7 @@ def evaluate_file(path: str, filename: str, builder: Builder, undirected: bool,
         trex_time = time.time() - start
 
         start = time.time()
-        metrics = Evaluator.evaluate(G, G_minus_T, G_built, planar=planar, skip_greedy=skip_greedy)
+        metrics = Evaluator.evaluate(G, G_minus_T, G_built, planar=planar, skip_greedy=skip_subgraph_density)
         evaluation_time = time.time() - start
         metrics["Dataset"] = filename
         if "bitvector total bits" in metrics and metrics["bitvector total bits"] not in (0, -1):
@@ -170,7 +170,7 @@ def trex_on_directory(directory: str, output_path="trex_results.csv", undirected
                        extraction_strategy="greedy", metrics=None):
     requested_metrics = resolve_metrics(metrics)
     planar = bool(PLANAR_DEPENDENT_METRICS.intersection(requested_metrics))
-    skip_greedy = not GREEDY_DEPENDENT_METRICS.intersection(requested_metrics)
+    skip_subgraph_density = not SUBGRAPH_DENSITY_DEPENDENT_METRICS.intersection(requested_metrics)
 
     results_as_dict = []
     builder = Builder()
@@ -180,7 +180,7 @@ def trex_on_directory(directory: str, output_path="trex_results.csv", undirected
         if filename.startswith('.'):
             continue
         path = directory + "/" + filename
-        metrics_dict = evaluate_file(path, filename, builder, undirected, extraction_strategy, planar, skip_greedy)
+        metrics_dict = evaluate_file(path, filename, builder, undirected, extraction_strategy, planar, skip_subgraph_density)
         results_as_dict.append(metrics_dict)
 
     return finalize(results_as_dict, output_path, requested_metrics)
@@ -190,11 +190,11 @@ def trex_on_single_graph(graph_path: str, output_path="trex_results.csv", undire
                           extraction_strategy="greedy", metrics=None):
     requested_metrics = resolve_metrics(metrics)
     planar = bool(PLANAR_DEPENDENT_METRICS.intersection(requested_metrics))
-    skip_greedy = not GREEDY_DEPENDENT_METRICS.intersection(requested_metrics)
+    skip_subgraph_density = not SUBGRAPH_DENSITY_DEPENDENT_METRICS.intersection(requested_metrics)
 
     builder = Builder()
     filename = os.path.basename(graph_path)
-    metrics_dict = evaluate_file(graph_path, filename, builder, undirected, extraction_strategy, planar, skip_greedy)
+    metrics_dict = evaluate_file(graph_path, filename, builder, undirected, extraction_strategy, planar, skip_subgraph_density)
 
     return finalize([metrics_dict], output_path, requested_metrics)
 
@@ -211,7 +211,7 @@ if __name__ == "__main__":
     parser.add_argument("--random", action="store_true")
     parser.add_argument("--metrics", default=None,
                          help="Comma-separated list of metrics to compute. Defaults to all. "
-                              "Available: " + ", ".join(ALL_METRICS))
+                              "Available: " + ", ".join(ALL_METRICS).replace("%", "%%"))
 
     args = parser.parse_args()
 
