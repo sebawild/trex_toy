@@ -15,6 +15,7 @@ for graph in $(cat Datasets/all-graphs); do
         OPTIONS+=(--undirected)
     fi
     OPTIONS+=(--metrics "n,m,type,array total bits,bitvector total bits,total bits trex,trex entropy,bitvector total bits,total bits planar,planar edges")
-    OPTIONS+=(--output "results-$graph.csv")
+    # replace directory / with - in the output filename
+    OPTIONS+=(--output "results-$(echo "$graph" | tr '/' '-').csv")
     python -m evaluation.pipeline --single-graph "Datasets/$graph" "${OPTIONS[@]}"
 done
