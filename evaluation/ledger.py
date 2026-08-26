@@ -56,6 +56,7 @@ Every run writes ``<name>-ledger.csv`` (one row per step) and
 from __future__ import annotations
 
 import argparse
+import json
 import math
 import os
 from dataclasses import dataclass, field
@@ -65,22 +66,110 @@ import networkx as nx
 import pandas as pd
 
 # --------------------------------------------------------------------------
-# palette: the colours of the companion website, so figures and page match
+# themes
 # --------------------------------------------------------------------------
+#
+# ``web``   the colours of the companion website, so page and figures match
+# ``paper`` neutral, white background, colourblind-safe (Okabe-Ito), serif
+# ``mono``  greyscale ramp for black-and-white printing
+#
+# Switch with ``use_theme("paper")`` before plotting, or ``--theme paper`` on
+# the command line.  ``PALETTE`` and ``COMPONENT_COLOURS`` are mutated in place,
+# so ``from evaluation.ledger import PALETTE`` keeps working after a switch.
 
-PALETTE = {
-    "bg": "#F1EED9",
-    "panel": "#f8f6ec",
-    "border": "#cdc9bb",
-    "ink": "#46433A",
-    "ink_soft": "#6b675c",
-    "ink_faint": "#8b8779",
-    "accent": "#902015",
-    "inert": "#d8d4c2",
+THEMES = {
+    "web": {
+        "palette": {
+            "bg": "#F1EED9", "panel": "#f8f6ec", "border": "#cdc9bb",
+            "ink": "#46433A", "ink_soft": "#6b675c", "ink_faint": "#8b8779",
+            "accent": "#902015", "inert": "#d8d4c2",
+        },
+        "components": ["#902015", "#b07d18", "#2a6a63", "#6f6a5c", "#c08777"],
+        "rc": {"font.family": "sans-serif"},
+    },
+    "paper": {
+        "palette": {
+            "bg": "#ffffff", "panel": "#ffffff", "border": "#b0b0b0",
+            "ink": "#000000", "ink_soft": "#404040", "ink_faint": "#707070",
+            "accent": "#000000", "inert": "#d9d9d9",
+        },
+        # Okabe-Ito: distinguishable under the common colour-vision deficiencies
+        "components": ["#D55E00", "#E69F00", "#0072B2", "#666666", "#CC79A7"],
+        "rc": {"font.family": "serif", "axes.titleweight": "bold"},
+    },
+    "mono": {
+        "palette": {
+            "bg": "#ffffff", "panel": "#ffffff", "border": "#999999",
+            "ink": "#000000", "ink_soft": "#333333", "ink_faint": "#666666",
+            "accent": "#000000", "inert": "#dddddd",
+        },
+        "components": ["#1a1a1a", "#666666", "#a6a6a6", "#d9d9d9", "#f0f0f0"],
+        "rc": {"font.family": "serif", "axes.titleweight": "bold"},
+    },
 }
 
-# one colour per component of a row, in the order the components are listed
-COMPONENT_COLOURS = ["#902015", "#b07d18", "#2a6a63", "#6f6a5c", "#c08777"]
+DEFAULT_THEME = "web"
+
+PALETTE: dict = dict(THEMES[DEFAULT_THEME]["palette"])
+COMPONENT_COLOURS: list = list(THEMES[DEFAULT_THEME]["components"])
+_ACTIVE = [DEFAULT_THEME]
+
+
+def active_theme() -> str:
+    return _ACTIVE[0]
+
+
+def theme_rc(name: str | None = None) -> dict:
+    """The matplotlib rcParams for a theme, so notebooks can style their own
+    figures to match the ledger plots."""
+    t = THEMES[name or _ACTIVE[0]]
+    p = t["palette"]
+    rc = {
+        "figure.facecolor": p["bg"], "savefig.facecolor": p["bg"],
+        "axes.facecolor": p["panel"], "axes.edgecolor": p["border"],
+        "axes.labelcolor": p["ink"], "text.color": p["ink"],
+        "xtick.color": p["ink_faint"], "ytick.color": p["ink_faint"],
+        "axes.titlecolor": p["accent"], "grid.color": p["border"],
+        "font.size": 9, "axes.spines.top": False, "axes.spines.right": False,
+    }
+    rc.update(t.get("rc", {}))
+    return rc
+
+
+def use_theme(name: str = "paper", apply_rc: bool = True) -> dict:
+    """Switch the palette used by :func:`plot_ledger` (and, with ``apply_rc``,
+    by every other matplotlib figure in the session).
+
+    Returns the active palette, so ``P = use_theme("paper")`` is a convenient
+    one-liner in a notebook.
+    """
+    if name not in THEMES:
+        raise ValueError(f"unknown theme {name!r}; choose from {sorted(THEMES)}")
+    t = THEMES[name]
+    PALETTE.clear()
+    PALETTE.update(t["palette"])
+    COMPONENT_COLOURS[:] = list(t["components"])
+    _ACTIVE[0] = name
+    if apply_rc:
+        import matplotlib.pyplot as plt
+
+        plt.rcParams.update(theme_rc(name))
+    return PALETTE
+
+
+def series_colours() -> tuple[str, str, str, str]:
+    """The four colours the notebook figures use, in the current theme:
+    baseline (0), entropy-compressed (2), TREX (3b), and a contrasting fourth."""
+    return (PALETTE["inert"], COMPONENT_COLOURS[1], COMPONENT_COLOURS[0],
+            COMPONENT_COLOURS[2])
+
+
+def _readable_on(hex_colour: str) -> str:
+    """Black or white, whichever is legible on the given fill."""
+    h = hex_colour.lstrip("#")
+    r, g, b = (int(h[i:i + 2], 16) / 255 for i in (0, 2, 4))
+    lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return "#000000" if lum > 0.55 else "#ffffff"
 
 
 # --------------------------------------------------------------------------
@@ -143,6 +232,14 @@ class Ledger:
         return next((r for r in self.rows if r.key == key), None)
 
     def frame(self) -> pd.DataFrame:
+        """One row per step.
+
+        The frame is a complete description of the ledger, not just a report of
+        it: the per-component split is kept as JSON in ``components``, and the
+        graph-level fields are repeated on every row.  :func:`ledger_from_frame`
+        turns it back into a :class:`Ledger`, so a figure can be redrawn -- in a
+        different theme, say -- without pricing the graph again.
+        """
         def pct(x):
             return None if x is None else 100.0 * x
 
@@ -150,6 +247,10 @@ class Ledger:
             [
                 {
                     "graph": self.name,
+                    "n": self.n,
+                    "arcs": self.arcs,
+                    "edges": self.edges,
+                    "directed": self.directed,
                     "step": r.key,
                     "name": r.name,
                     "formula": r.formula,
@@ -161,10 +262,136 @@ class Ledger:
                     "saved vs (2) (%)": pct(r.vs_entropy),
                     "H part": r.H if r.bits is not None else None,
                     "stored arcs": r.m if r.bits is not None else None,
+                    "tree edges": r.tree_edges if r.bits is not None else None,
+                    "components": json.dumps(r.components),
                 }
                 for r in self.rows
             ]
         )
+
+
+def _infer_missing_metadata(df: pd.DataFrame) -> dict:
+    """Recover n, the arc counts and the per-component split from an old-format
+    ledger CSV -- one written before ``components``/``n``/``edges`` were stored.
+
+    Everything here is arithmetic on numbers already in the file; the graph is
+    never touched.  ``n`` comes from inverting row (0),
+    ``bits = m*ceil(lg n) + n*ceil(lg m)``, by trying each possible id width.
+    """
+    by_step = {str(d["step"]): d for _, d in df.iterrows()}
+    if "0" not in by_step:
+        raise ValueError("cannot rebuild: the CSV has no row (0) to invert")
+
+    r0 = by_step["0"]
+    directed = "1u" not in by_step
+    edges = int(round(float(r0["bits"]) / float(r0["bits per edge"])))
+    arcs = edges if directed else 2 * edges
+    ptr_bits = max(1, math.ceil(lg(max(arcs, 2))))
+
+    n = None
+    for id_bits in range(1, 65):
+        rest = float(r0["bits"]) - arcs * id_bits
+        cand = rest / ptr_bits
+        if cand < 1 or abs(cand - round(cand)) > 1e-6:
+            continue
+        cand = int(round(cand))
+        if max(1, math.ceil(lg(max(cand, 2)))) == id_bits:
+            n, id_bits_final = cand, id_bits
+            break
+    if n is None:
+        raise ValueError("cannot rebuild: row (0) does not invert to an integer n")
+
+    sep = lambda a: lg_binom(n + a, n)          # noqa: E731
+    linear = (3 if directed else 2) * n
+    lin_label = "3n - LOUDS, plus n for D" if directed else "2n - LOUDS"
+
+    comps = {}
+    for key, d in by_step.items():
+        bits = d.get("bits")
+        if bits is None or (isinstance(bits, float) and math.isnan(bits)):
+            comps[key] = []
+            continue
+        bits = float(bits)
+        m = int(d["stored arcs"]) if not pd.isna(d.get("stored arcs")) else arcs
+        H = 0.0 if pd.isna(d.get("H part")) else float(d["H part"])
+        if key == "0":
+            comps[key] = [("m*ceil(lg n) - one id per stored arc", arcs * id_bits_final,
+                           f"{arcs} x {id_bits_final}"),
+                          ("n*ceil(lg m) - one offset per vertex", n * ptr_bits,
+                           f"{n} x {ptr_bits}")]
+        elif key in ("1", "1u"):
+            paid = m * id_bits_final
+            comps[key] = [("m*ceil(lg n) - the adjacency string, uncompressed", paid,
+                           f"{m} x {id_bits_final}"),
+                          ("lg C(n+m, n) - the separator bitvector", bits - paid, "")]
+        elif key == "2":
+            comps[key] = [("H(G) - in-degree entropy of the string", H,
+                           f"sum d lg(m/d) over {m} arcs"),
+                          ("lg C(n+m, n) - the separator bitvector", bits - H, "")]
+        elif key in ("3b", "3w"):
+            comps[key] = [("H(G-T) - entropy of what is left", H, f"{m} residual arcs"),
+                          ("lg C(n+m', n) - separator bitvector of A'",
+                           bits - H - linear, ""),
+                          (lin_label, linear, f"{3 if directed else 2} x {n}")]
+        else:
+            # row (4) needs n0, which the old format did not store: show it whole
+            comps[key] = [("total (component split not stored in this CSV)", bits, "")]
+    return {"n": n, "arcs": arcs, "edges": edges, "directed": directed,
+            "components": comps, "sep": sep}
+
+
+def ledger_from_frame(df: pd.DataFrame, name: str | None = None) -> Ledger:
+    """Rebuild a :class:`Ledger` from the CSV written by :meth:`Ledger.frame`.
+
+    Only the fields the plot needs are restored; ``H0``, ``m_ent`` and
+    ``indegrees`` are not stored per row, so :func:`compression_bounds` still
+    needs the graph itself.
+    """
+    def maybe(v):
+        return None if v is None or (isinstance(v, float) and math.isnan(v)) else float(v)
+
+    # old-format CSVs lack the graph-level fields and the component split;
+    # both are recoverable from the numbers already in the file
+    legacy = None
+    if "components" not in df.columns or "n" not in df.columns:
+        legacy = _infer_missing_metadata(df)
+
+    rows = []
+    for _, d in df.iterrows():
+        bits = maybe(d.get("bits"))
+        red = str(d.get("redundancy") or "")
+        rows.append(Row(
+            key=str(d["step"]),
+            name=str(d["name"]),
+            formula=str(d["formula"]),
+            bits=bits,
+            redundancy=([] if red.lower() in ("", "nan", "none", "-")
+                        else [t.strip() for t in red.split("+") if t.strip()]),
+            components=(legacy["components"].get(str(d["step"]), []) if legacy
+                        else [tuple(c) for c in json.loads(d.get("components") or "[]")]),
+            m=int(d["stored arcs"]) if maybe(d.get("stored arcs")) is not None else 0,
+            H=maybe(d.get("H part")) or 0.0,
+            tree_edges=(int(d["tree edges"])
+                        if "tree edges" in df.columns and maybe(d.get("tree edges")) is not None
+                        else 0),
+            vs_prev=(lambda v: None if v is None else v / 100)(maybe(d.get("saved vs previous (%)"))),
+            vs_base=(lambda v: None if v is None else v / 100)(maybe(d.get("saved vs (0) (%)"))),
+            vs_entropy=(lambda v: None if v is None else v / 100)(maybe(d.get("saved vs (2) (%)"))),
+        ))
+    first = df.iloc[0]
+    meta = legacy or {"n": int(first["n"]), "arcs": int(first["arcs"]),
+                      "edges": int(first["edges"]), "directed": bool(first["directed"])}
+    return Ledger(
+        name=name or str(first["graph"]),
+        directed=meta["directed"],
+        n=meta["n"],
+        arcs=meta["arcs"],
+        edges=meta["edges"],
+        rows=rows,
+        H0=float("nan"),
+        m_ent=0,
+        indegrees=[],
+    )
 
 
 # --------------------------------------------------------------------------
@@ -567,7 +794,7 @@ def _fmt_axis(x: float) -> str:
 
 
 def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None = None,
-                show_redundancy: bool = True):
+                show_redundancy: bool = True, theme: str | None = None):
     """One horizontal stacked bar per step, on a shared bits-per-pixel scale.
 
     ``absolute=True`` reproduces the website's absolute mode: row (0) fills the
@@ -580,6 +807,9 @@ def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None =
     """
     import matplotlib.pyplot as plt
     from matplotlib.patches import Patch
+
+    if theme is not None and theme != active_theme():
+        use_theme(theme)
 
     priced = [r for r in led.rows if r.bits is not None]
     skipped = [r for r in led.rows if r.bits is None]
@@ -618,9 +848,10 @@ def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None =
                     color=COMPONENT_COLOURS[i % len(COMPONENT_COLOURS)],
                     edgecolor=PALETTE["panel"], linewidth=0.6)
             if seg > 0.06:
+                fill = COMPONENT_COLOURS[i % len(COMPONENT_COLOURS)]
                 ax.text(left + seg / 2, y, f"{100 * bits / total:.0f}%",
                         va="center", ha="center", fontsize=8,
-                        color="white", fontweight="bold")
+                        color=_readable_on(fill), fontweight="bold")
             left += seg
         ax.text(col_bits, y, _fmt_bits(total), va="center", ha="right",
                 fontsize=9.5, color=PALETTE["ink"], family="monospace")
@@ -670,8 +901,8 @@ def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None =
                       fontsize=9, color=PALETTE["ink_soft"])
 
     head = title or (
-        f"{led.name}    n = {led.n:,} - "
-        f"{led.edges:,} {'arcs directed' if led.directed else 'edges undirected'}"
+        f"{led.name.replace('_', ' ')}    n = {led.n:,},  "
+        f"{led.edges:,} {'edges (directed)' if led.directed else 'edges (undirected)'}"
     )
     ax.set_title(head, fontsize=12, color=PALETTE["accent"], loc="left", pad=14)
     top = len(led.rows) - 0.42
@@ -708,11 +939,13 @@ def read_graph(path: str, undirected: bool):
 
 
 def run(path: str, undirected: bool, outdir: str, absolute: bool,
-        with_twins: bool, bounds: bool, show: bool):
+        with_twins: bool, bounds: bool, show: bool, theme: str = DEFAULT_THEME):
     import matplotlib
     if not show:
         matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    use_theme(theme)
 
     name = os.path.splitext(os.path.basename(path))[0]
     G = read_graph(path, undirected)
@@ -733,7 +966,7 @@ def run(path: str, undirected: bool, outdir: str, absolute: bool,
         for k, v in compression_bounds(led, G, exact_density=True).items():
             print(f"  {k:<34} {v if v is None else f'{v:,.2f}'}")
 
-    fig, _ = plot_ledger(led, absolute=absolute)
+    fig, _ = plot_ledger(led, absolute=absolute, theme=theme)
     for ext in ("pdf", "png"):
         fig.savefig(os.path.join(outdir, f"{name}-ledger.{ext}"), dpi=200,
                     facecolor=fig.get_facecolor())
@@ -753,6 +986,9 @@ def main():
     p.add_argument("--outdir", default="figures")
     p.add_argument("--relative", action="store_true",
                    help="normalise every bar to full width instead of a shared bits scale")
+    p.add_argument("--theme", default=DEFAULT_THEME, choices=sorted(THEMES),
+                   help="web = companion-website colours, paper = neutral and "
+                        "colourblind-safe, mono = greyscale for print")
     p.add_argument("--no-twins", action="store_true", help="skip the twin-removal row")
     p.add_argument("--bounds", action="store_true",
                    help="also report the Theorem 1.6/1.7 guarantees (needs the densest-subgraph peeling)")
@@ -769,7 +1005,7 @@ def main():
     for path in paths:
         print(f"\n=== {path}")
         _led, df = run(path, a.undirected, a.outdir, not a.relative,
-                       not a.no_twins, a.bounds, not a.no_show)
+                       not a.no_twins, a.bounds, not a.no_show, a.theme)
         frames.append(df)
 
     if len(frames) > 1:

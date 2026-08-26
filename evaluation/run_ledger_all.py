@@ -38,11 +38,13 @@ import traceback
 
 import pandas as pd
 
-from evaluation.ledger import compression_ledger, plot_ledger, read_graph
+from evaluation.ledger import (THEMES, compression_ledger, ledger_from_frame,
+                               plot_ledger, read_graph, use_theme)
 
 DEFAULT_MANIFEST = os.path.join("Datasets", "all-graphs")
 DEFAULT_ROOT = "Datasets"
 MERGED = "ledger-all.csv"
+enablePgfExports = True
 
 # directories that hold archive leftovers rather than graphs
 SKIP_DIRS = {"__MACOSX", "all-graphs"}
@@ -93,8 +95,14 @@ def main():
                    help="skip graphs with more edges than this")
     p.add_argument("--no-figures", action="store_true", help="write only the tables")
     p.add_argument("--no-twins", action="store_true", help="skip the twin-removal row")
+    p.add_argument("--theme", default="web", choices=sorted(THEMES),
+                   help="web = companion-website colours, paper = neutral and "
+                        "colourblind-safe, mono = greyscale for print")
     p.add_argument("--relative", action="store_true",
                    help="normalise every bar to full width instead of a shared bits scale")
+    p.add_argument("--figures-only", action="store_true",
+                   help="redraw the per-graph PDFs from the CSVs already in --outdir, "
+                        "without pricing any graph again (use this to re-theme)")
     p.add_argument("--force", action="store_true",
                    help="re-price graphs already present in ledger-all.csv")
     a = p.parse_args()
@@ -102,6 +110,8 @@ def main():
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
+
+    use_theme(a.theme)
 
     if a.walk:
         paths = graphs_from_walk(a.root)
@@ -118,6 +128,35 @@ def main():
     os.makedirs(a.outdir, exist_ok=True)
     merged_path = os.path.join(a.outdir, MERGED)
     done = set() if a.force else already_done(merged_path)
+
+    if enablePgfExports:
+        import matplotlib
+        from matplotlib.backends.backend_pgf import FigureCanvasPgf
+        matplotlib.backend_bases.register_backend('pdf', FigureCanvasPgf)
+
+    def draw(led, path_pdf):
+        fig, _ = plot_ledger(led, absolute=not a.relative)
+        fig.savefig(path_pdf, facecolor=fig.get_facecolor(), bbox_inches = "tight")
+        # Save fig with PGF matplotlib backend for LaTeX inclusion, if available
+        try:
+            name = path_pdf[:-4]
+            fig.savefig(name + ".pgf", bbox_inches = "tight", facecolor=fig.get_facecolor())
+            fig.savefig(name + ".png", bbox_inches = "tight", facecolor=fig.get_facecolor(), dpi=500)
+        except Exception:
+            print("Warning: could not save PGF version of figure (matplotlib backend may not support it)")
+        plt.close(fig)
+
+    if a.figures_only:
+        csvs = sorted(f for f in os.listdir(a.outdir) if f.endswith("-ledger.csv"))
+        if not csvs:
+            sys.exit(f"no *-ledger.csv in {a.outdir} -- run without --figures-only first")
+        for j, fn in enumerate(csvs, 1):
+            nm = fn[:-len("-ledger.csv")]
+            led = ledger_from_frame(pd.read_csv(os.path.join(a.outdir, fn)))
+            draw(led, os.path.join(a.outdir, f"{nm}-ledger.pdf"))
+            print(f"[{j:2}/{len(csvs)}] {nm:32} redrawn from {fn}")
+        print(f"\n{len(csvs)} figure(s) redrawn in theme {a.theme!r}; nothing recomputed")
+        return
 
     frames, failed, skipped = [], [], []
     if done and not a.force:
@@ -136,10 +175,22 @@ def main():
         undirected = is_undirected(path)
         tag = "undirected" if undirected else "directed"
 
+        pdf_path = os.path.join(a.outdir, f"{name}-ledger.pdf")
+        csv_path = os.path.join(a.outdir, f"{name}-ledger.csv")
+
         if name in done:
-            print(f"[{i:2}/{len(paths)}] {name:32} already in {MERGED}, skipping")
-            skipped.append(name)
-            continue
+            need_pdf = not a.no_figures and not os.path.exists(pdf_path)
+            if need_pdf and os.path.exists(csv_path):
+                # the metrics are already on disk -- draw from them, do not re-price
+                draw(ledger_from_frame(pd.read_csv(csv_path)), pdf_path)
+                print(f"[{i:2}/{len(paths)}] {name:32} figure redrawn from CSV "
+                      f"(not recomputed)")
+                skipped.append(name)
+                continue
+            if not need_pdf:
+                print(f"[{i:2}/{len(paths)}] {name:32} already in {MERGED}, skipping")
+                skipped.append(name)
+                continue
 
         t0 = time.time()
         try:
@@ -154,14 +205,11 @@ def main():
             frame = led.frame()
             frame.insert(1, "type", tag)
             frame.insert(2, "path", path)
-            frame.to_csv(os.path.join(a.outdir, f"{name}-ledger.csv"), index=False)
+            frame.to_csv(csv_path, index=False)
             frames.append(frame)
 
             if not a.no_figures:
-                fig, _ = plot_ledger(led, absolute=not a.relative)
-                fig.savefig(os.path.join(a.outdir, f"{name}-ledger.pdf"),
-                            facecolor=fig.get_facecolor())
-                plt.close(fig)
+                draw(led, pdf_path)
 
             best = led.row("3b").bits
             base = led.row("0").bits
