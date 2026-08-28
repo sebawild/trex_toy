@@ -563,7 +563,7 @@ def compression_ledger(G, name: str = "graph", with_twins: bool = True) -> Ledge
     rows.append(
         Row(
             key="1",
-            name="One string + separator bitvector",
+            name="Adj. string + bitvector",
             formula="m*ceil(lg n) + lg C(n+m, n)",
             bits=M * id_bits + sep(M),
             redundancy=["o(m)"],
@@ -580,7 +580,7 @@ def compression_ledger(G, name: str = "graph", with_twins: bool = True) -> Ledge
         rows.append(
             Row(
                 key="1u",
-                name="Wavelet tree: each edge stored once",
+                name="Wavelet tree (directed)",
                 formula="m'*ceil(lg n) + lg C(n+m', n),  m' = |E|",
                 bits=E * id_bits + sep(E),
                 redundancy=["o(m)"],
@@ -604,7 +604,7 @@ def compression_ledger(G, name: str = "graph", with_twins: bool = True) -> Ledge
     rows.append(
         Row(
             key="2",
-            name="Entropy-compressed adjacency string",
+            name="$H_0$-compr. wavelet tree",
             formula="H(G) + lg C(n+m, n)",
             bits=H0 + sep(m_ent),
             redundancy=["o(m)"],
@@ -624,7 +624,7 @@ def compression_ledger(G, name: str = "graph", with_twins: bool = True) -> Ledge
         rows.append(
             Row(
                 key=key,
-                name="TREX - " + ("worst" if worst else "best") + " MST-based tree",
+                name="TREX -- " + ("worst" if worst else "best") + " MST",
                 formula=f"H(G-T) + lg C(n+m', n) + {'3n' if directed else '2n'}",
                 bits=H + sep(m_res) + linear,
                 redundancy=["o(m)", "o(n)"],
@@ -650,7 +650,7 @@ def compression_ledger(G, name: str = "graph", with_twins: bool = True) -> Ledge
             rows.append(
                 Row(
                     key="4",
-                    name="Twin removal, then TREX",
+                    name="Twin removal + TREX",
                     formula=(
                         f"H(G0-T0) + lg C(n0+m0', n0) + {'3n0' if directed else '2n0'} "
                         "+ lg C(N, n0)"
@@ -674,7 +674,7 @@ def compression_ledger(G, name: str = "graph", with_twins: bool = True) -> Ledge
             )
         else:
             rows.append(
-                Row(key="4", name="Twin removal, then TREX", formula="no twins in this graph", bits=None)
+                Row(key="4", name="Twin removal + TREX", formula="no twins in this graph", bits=None)
             )
 
     # ---- savings, relative to the previous priced row and to row (0) --------
@@ -768,10 +768,10 @@ def compression_bounds(led: Ledger, G, exact_density: bool = False) -> dict:
 
 
 ROLE_LABELS = [
-    "adjacency payload - vertex ids, or H(.) once entropy-compressed",
-    "vertex boundaries - offsets, resp. the separator bitvector",
-    "tree topology - LOUDS (plus D for digraphs)",
-    "twin class sizes - lg C(N, n0)",
+    "adj. list / string ($A$/$A'$)",
+    "neighbourhood separator ($S$/$S'$)",
+    "tree $T$ (LOUDS+$D$)",
+    "twin class sizes ($B$)",
 ]
 
 
@@ -816,8 +816,8 @@ def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None =
     base = priced[0].bits
 
     if ax is None:
-        height = 0.80 * len(led.rows) + 2.6
-        fig, ax = plt.subplots(figsize=(14.0, height), layout="constrained")
+        height = 0.7 * len(led.rows) + 2.5
+        fig, ax = plt.subplots(figsize=(0.5*14.0, 0.5*height), layout="constrained")
         fig.patch.set_facecolor(PALETTE["bg"])
     else:
         fig = ax.figure
@@ -850,7 +850,7 @@ def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None =
             if seg > 0.06:
                 fill = COMPONENT_COLOURS[i % len(COMPONENT_COLOURS)]
                 ax.text(left + seg / 2, y, f"{100 * bits / total:.0f}%",
-                        va="center", ha="center", fontsize=8,
+                        va="center", ha="center", fontsize=6,
                         color=_readable_on(fill), fontweight="bold")
             left += seg
         ax.text(col_bits, y, _fmt_bits(total), va="center", ha="right",
@@ -873,11 +873,11 @@ def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None =
     ax.set_yticks(ypos)
     ax.set_yticklabels([f"({r.key})  {r.name}" for r in led.rows],
                        fontsize=10, color=PALETTE["ink"])
-    for y, r in zip(ypos, led.rows):
-        if r.bits is not None:
-            ax.text(-0.004, y - 0.44, r.formula, va="top", ha="right",
-                    fontsize=7.5, color=PALETTE["ink_faint"], family="monospace",
-                    transform=ax.get_yaxis_transform())
+    # for y, r in zip(ypos, led.rows):
+    #     if r.bits is not None:
+    #         ax.text(-0.004, y - 0.44, r.formula, va="top", ha="right",
+    #                 fontsize=7.5, color=PALETTE["ink_faint"], family="monospace",
+    #                 transform=ax.get_yaxis_transform())
 
     ax.set_xlim(0, col_base + 0.05)
     ax.set_ylim(-0.8, len(led.rows) - 0.2)
@@ -890,7 +890,7 @@ def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None =
     ax.set_xticks(ticks)
     if absolute:
         ax.set_xticklabels([_fmt_axis(t * base) for t in ticks])
-        ax.set_xlabel(f"bits - one scale for every row; the full width is row (0) = "
+        ax.set_xlabel(f"bits -- full width is row (0) = "
                       f"{_fmt_bits(base)} bits",
                       fontsize=9, color=PALETTE["ink_soft"])
         for t in ticks[1:]:
@@ -923,7 +923,7 @@ def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None =
                "every total; on small graphs it would swamp them")
     if skipped:
         caption = "; ".join(f"({r.key}) {r.formula}" for r in skipped) + " - " + caption
-    fig.text(0.012, 0.008, caption, fontsize=7.5, color=PALETTE["ink_faint"])
+    # fig.text(0.012, 0.008, caption, fontsize=7.5, color=PALETTE["ink_faint"])
     # fig.tight_layout(rect=(0, 0.03, 1, 1))
     return fig, ax
 
