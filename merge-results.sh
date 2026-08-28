@@ -3,9 +3,13 @@
 # The first file contributes its header; subsequent files skip their header row.
 
 OUTPUT="merged.csv"
+FILES=()
+for f in results-*.csv; do
+    FILES+=("$f")
+done
 
 first=1
-for f in results*.csv; do
+for f in "${FILES[@]}"; do
     if [[ $first -eq 1 ]]; then
         cat "$f" > "$OUTPUT"
         first=0
@@ -14,4 +18,4 @@ for f in results*.csv; do
     fi
 done
 
-echo "Merged $(ls results*.csv | wc -l) files into $OUTPUT"
+echo "Merged ${#FILES[@]} files into $OUTPUT"

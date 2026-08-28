@@ -14,6 +14,16 @@ for graph in $(cat Datasets/all-graphs); do
     if [[ $graph == *"Undirected"* ]]; then
         OPTIONS+=(--undirected)
     fi
+    # Also undirected for the following graphs, even though they don't contain "Undirected" in their name
+    if [[ $graph == *"G_erdos_renyi.txt"* ]]; then
+        OPTIONS+=(--undirected)
+    fi
+    if [[ $graph == *"G_bipartite.txt"* ]]; then
+        OPTIONS+=(--undirected)
+    fi
+    if [[ $graph == *"G_barabasi_albert.txt"* ]]; then
+        OPTIONS+=(--undirected)
+    fi
     OPTIONS+=(--metrics "n,m,type,indegree entropy,indegree entropy greedy,array total bits,bitvector total bits,bitvector greedy total bits,total bits trex,trex entropy,total bits planar,planar edges")
     # replace directory / with - in the output filename
     OPTIONS+=(--output "results-$(echo "$graph" | tr '/' '-').csv")
