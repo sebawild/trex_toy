@@ -1,0 +1,31 @@
+# <path relative to Datasets/>  <directed|undirected>  <real|synthetic>  <role>
+#
+# origin/role follow thesis.pdf section 4.2. Table 1 is headed 'benchmark graph
+# datasets' and lists 11 graphs -- 8 real-world and 3 synthetic. The 7 'validation'
+# graphs were 'exclusively used as validation sample to test the generalizability
+# of the compression-potential heuristic'. The 'illustration' graphs are not
+# representative; but crafted to make certain points
+# graph_A/graph_B come from Tests/sameDensity.py and appear as G_A/G_B
+# in section 4.3.4 (Figure 7); fig2-example is the n = 8 worked example.
+
+fig2-example.txt                                 directed    synthetic  illustration
+TestSet/Undirected/oregon1_010331.txt            undirected  real       validation
+TestSet/Undirected/power-US-Grid.txt             undirected  real       validation
+TestSet/Undirected/facebook_combined.txt         undirected  real       validation
+TestSet/Undirected/CA-AstroPh.txt                undirected  real       validation
+TestSet/Directed/email-Eu-core.txt               directed    real       validation
+TestSet/Directed/celegansneural.txt              directed    real       validation
+TestSet/Directed/p2p-Gnutella24.txt              directed    real       validation
+Undirected/bio-grid-yeast.txt                    undirected  real       benchmark
+Undirected/roadNet-PA.txt                        undirected  real       benchmark
+Undirected/large_twitch_edges.txt                undirected  real       benchmark
+Synthetic/G_barabasi_albert.txt                  undirected  synthetic  benchmark
+Synthetic/G_bipartite.txt                        undirected  synthetic  benchmark
+Synthetic/G_erdos_renyi.txt                      undirected  synthetic  benchmark
+GA_and_GB/graph_A_skewed.txt                     directed    synthetic  illustration
+GA_and_GB/graph_B_uniform.txt                    directed    synthetic  illustration
+Directed/Wiki-Vote.txt                           directed    real       benchmark
+Directed/wikilink_graph.2005-03-01_edgelist.txt  directed    real       benchmark
+Directed/Cit-HepPh.txt                           directed    real       benchmark
+Directed/Amazon0302.txt                          directed    real       benchmark
+Directed/Slashdot0811.txt                        directed    real       benchmark

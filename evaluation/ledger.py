@@ -817,7 +817,7 @@ def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None =
 
     if ax is None:
         height = 0.80 * len(led.rows) + 2.6
-        fig, ax = plt.subplots(figsize=(14.0, height))
+        fig, ax = plt.subplots(figsize=(14.0, height), layout="constrained")
         fig.patch.set_facecolor(PALETTE["bg"])
     else:
         fig = ax.figure
@@ -924,7 +924,7 @@ def plot_ledger(led: Ledger, absolute: bool = True, ax=None, title: str | None =
     if skipped:
         caption = "; ".join(f"({r.key}) {r.formula}" for r in skipped) + " - " + caption
     fig.text(0.012, 0.008, caption, fontsize=7.5, color=PALETTE["ink_faint"])
-    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    # fig.tight_layout(rect=(0, 0.03, 1, 1))
     return fig, ax
 
 
